@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="..\..\src\N0vaCacheWallpaperTool\NdfBuilder.cs" Link="NdfBuilder.cs" />
+    <Compile Include="..\..\src\N0vaCacheWallpaperTool\CacheSlotLocator.cs" Link="CacheSlotLocator.cs" />
+    <Compile Include="..\..\src\N0vaCacheWallpaperTool\Models.cs" Link="Models.cs" />
+    <Compile Include="..\..\src\N0vaCacheWallpaperTool\ToolPaths.cs" Link="ToolPaths.cs" />
+  </ItemGroup>
+</Project>

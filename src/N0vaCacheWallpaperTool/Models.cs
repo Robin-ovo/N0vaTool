@@ -1,0 +1,62 @@
+using System.Text.Json.Serialization;
+
+namespace N0vaCacheWallpaperTool;
+
+internal sealed class WallpaperProfile
+{
+    public string Id { get; set; } = Guid.NewGuid().ToString("N");
+    public string Title { get; set; } = "";
+    public string Game { get; set; } = "原神";
+    public string Author { get; set; } = "自定义";
+    public string Type { get; set; } = "动态";
+    public string SourcePath { get; set; } = "";
+    public string OriginalFileName { get; set; } = "";
+    public long SourceLength { get; set; }
+    public DateTime ImportedAt { get; set; } = DateTime.Now;
+    public DateTime? LastAppliedAt { get; set; }
+}
+
+internal sealed class ToolDatabase
+{
+    [JsonPropertyName("version")]
+    public int Version { get; set; } = 1;
+
+    [JsonPropertyName("profiles")]
+    public List<WallpaperProfile> Profiles { get; set; } = [];
+
+    [JsonPropertyName("lastAppliedId")]
+    public string? LastAppliedId { get; set; }
+}
+
+internal sealed class CacheSlotInfo
+{
+    public string ResourceId { get; init; } = "";
+    public string FilePath { get; init; } = "";
+    public string FileName => Path.GetFileName(FilePath);
+    public long Length { get; init; }
+    public string Sha256 { get; init; } = "";
+    public DateTime CreationTimeUtc { get; init; }
+    public DateTime LastWriteTimeUtc { get; init; }
+    public string DiscoverySource { get; init; } = "";
+}
+
+internal sealed class ActiveSlotManifest
+{
+    public int Version { get; set; } = 1;
+    public string ResourceId { get; set; } = "";
+    public string SlotPath { get; set; } = "";
+    public long SlotLength { get; set; }
+    public string AppliedSha256 { get; set; } = "";
+    public string OriginalSha256 { get; set; } = "";
+    public string OriginalBackupPath { get; set; } = "";
+    public string OriginalFileName { get; set; } = "";
+    public DateTime CapturedAt { get; set; } = DateTime.Now;
+}
+
+internal sealed class CacheOperationResult
+{
+    public string ResourceId { get; init; } = "";
+    public string SlotName { get; init; } = "";
+    public long SlotLength { get; init; }
+    public string DiscoverySource { get; init; } = "";
+}
