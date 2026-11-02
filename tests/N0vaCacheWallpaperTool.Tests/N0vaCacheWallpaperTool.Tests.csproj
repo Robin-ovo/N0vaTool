@@ -9,6 +9,7 @@
     <Compile Include="..\..\src\N0vaCacheWallpaperTool\NdfBuilder.cs" Link="NdfBuilder.cs" />
     <Compile Include="..\..\src\N0vaCacheWallpaperTool\CacheSlotLocator.cs" Link="CacheSlotLocator.cs" />
     <Compile Include="..\..\src\N0vaCacheWallpaperTool\Models.cs" Link="Models.cs" />
+    <Compile Include="..\..\src\N0vaCacheWallpaperTool\ErrorSummary.cs" Link="ErrorSummary.cs" />
     <Compile Include="..\..\src\N0vaCacheWallpaperTool\ToolPaths.cs" Link="ToolPaths.cs" />
     <Compile Include="..\..\src\N0vaCacheWallpaperTool\ToolLogger.cs" Link="ToolLogger.cs" />
     <Compile Include="..\..\src\N0vaCacheWallpaperTool\SettingsStore.cs" Link="SettingsStore.cs" />

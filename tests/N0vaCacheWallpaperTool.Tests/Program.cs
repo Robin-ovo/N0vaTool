@@ -79,6 +79,7 @@ try
 
     VerifyReplacementDeletionRediscovery(source, sourceLength, testRoot);
     VerifyInstallationDetectionAndLogs(source, sourceLength, testRoot);
+    VerifyErrorSummary();
     if (live)
     {
         IReadOnlyList<N0vaInstallationCandidate> liveCandidates =
@@ -352,6 +353,24 @@ static void VerifyInstallationDetectionAndLogs(
     Require(
         !Directory.EnumerateFiles(ToolPaths.LogDirectory, "*.log").Any(),
         "log directory still contains logs");
+}
+
+static void VerifyErrorSummary()
+{
+    string firstLine = ErrorSummary.Format(
+        "替换失败",
+        "当前为静态壁纸\r\n请选择官方动态壁纸");
+    Require(
+        firstLine == "替换失败：当前为静态壁纸",
+        "error summary did not select the first line");
+
+    string longSummary = ErrorSummary.Format(
+        "替换失败",
+        new string('错', 200));
+    Require(
+        longSummary.EndsWith('…') &&
+        longSummary.Length < 140,
+        "long error summary was not truncated");
 }
 
 static void Require(bool condition, string message)

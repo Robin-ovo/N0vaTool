@@ -576,6 +576,7 @@ internal sealed class MainForm : Form
         catch (Exception ex)
         {
             ToolLogger.Error("导入 MP4 失败", ex);
+            SetErrorStatus("导入失败", ex);
             MessageBox.Show(this, ex.Message, "导入失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
         finally
@@ -664,6 +665,10 @@ internal sealed class MainForm : Form
         catch (UnauthorizedAccessException ex)
         {
             ToolLogger.Error("替换壁纸失败：没有写入权限", ex);
+            SetErrorStatus(
+                "替换失败",
+                "没有写入人工桌面目录的权限，请以管理员身份运行本工具",
+                ex.ToString());
             MessageBox.Show(
                 this,
                 "没有写入人工桌面目录的权限。请以管理员身份运行本工具。",
@@ -674,6 +679,7 @@ internal sealed class MainForm : Form
         catch (Exception ex)
         {
             ToolLogger.Error("替换壁纸失败", ex);
+            SetErrorStatus("替换失败", ex);
             MessageBox.Show(this, ex.Message, "替换失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
         finally
@@ -714,6 +720,7 @@ internal sealed class MainForm : Form
         catch (Exception ex)
         {
             ToolLogger.Error("恢复官方缓存失败", ex);
+            SetErrorStatus("恢复失败", ex);
             MessageBox.Show(this, ex.Message, "恢复失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
         finally
@@ -768,6 +775,7 @@ internal sealed class MainForm : Form
         catch (Exception ex)
         {
             ToolLogger.Error("修复人工桌面启动状态失败", ex);
+            SetErrorStatus("修复启动失败", ex);
             MessageBox.Show(
                 this,
                 "修复失败：" + ex.Message,
@@ -912,6 +920,21 @@ internal sealed class MainForm : Form
     {
         _status.Text = text;
         _status.ForeColor = Accent;
+    }
+
+    private void SetErrorStatus(string context, Exception exception)
+    {
+        SetErrorStatus(context, exception.Message, exception.ToString());
+    }
+
+    private void SetErrorStatus(
+        string context,
+        string reason,
+        string? details = null)
+    {
+        _status.Text = ErrorSummary.Format(context, reason);
+        _status.ForeColor = Color.FromArgb(245, 120, 120);
+        _status.Tag = details ?? reason;
     }
 
     private void TryLaunchN0va(string failureMessage)
