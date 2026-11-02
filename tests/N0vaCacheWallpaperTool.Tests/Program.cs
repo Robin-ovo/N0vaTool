@@ -96,16 +96,23 @@ try
             manageProcesses: false,
             validateVersion: true);
         N0vaInstallationStatus liveStatus = liveService.GetInstallationStatus();
-        Require(liveStatus.IsReady, "live installation status is not ready: " + liveStatus.UserMessage);
         Console.WriteLine(
             $"LIVE installation version={liveStatus.Version} status={liveStatus.Summary}");
-
-        CacheSlotInfo liveSlot = CacheSlotLocator.Locate(
-            @"C:\Program Files\N0vaDesktop",
-            sourceLength)
-            ?? throw new InvalidOperationException("live cache-slot discovery failed");
-        Console.WriteLine(
-            $"LIVE slot={liveSlot.FileName} length={liveSlot.Length} source={liveSlot.DiscoverySource}");
+        Require(
+            liveStatus.IsReady ||
+            liveStatus.Issue is
+                N0vaInstallationIssue.StaticWallpaperSelected or
+                N0vaInstallationIssue.MissingResourceSelection,
+            "unexpected live installation status: " + liveStatus.UserMessage);
+        if (liveStatus.IsReady)
+        {
+            CacheSlotInfo liveSlot = CacheSlotLocator.Locate(
+                @"C:\Program Files\N0vaDesktop",
+                sourceLength)
+                ?? throw new InvalidOperationException("live cache-slot discovery failed");
+            Console.WriteLine(
+                $"LIVE slot={liveSlot.FileName} length={liveSlot.Length} source={liveSlot.DiscoverySource}");
+        }
     }
     Console.WriteLine(
         "OK: NDF, cache-slot discovery, installation status, manual path, and log deletion");
@@ -232,6 +239,46 @@ static void VerifyInstallationDetectionAndLogs(
         "missing config was not reported");
 
     string config = Path.Combine(host, "config.ini");
+    File.WriteAllText(
+        config,
+        "[SETTING]\ncur_sel_res_type=1\ncur_sel_res_dynamic_type=0\n");
+    Require(
+        service.GetInstallationStatus().Issue ==
+        N0vaInstallationIssue.MissingResourceSelection,
+        "missing current resource selection was not reported");
+
+    File.WriteAllText(
+        config,
+        "[SETTING]\r\ncur_sel_res_id=BlackIris_Green\r\n" +
+        "cur_sel_res_type=0\r\ncur_sel_res_dynamic_type=0\r\n");
+    N0vaInstallationStatus staticStatus = service.GetInstallationStatus();
+    Require(
+        staticStatus.Issue == N0vaInstallationIssue.StaticWallpaperSelected,
+        "static wallpaper was not reported");
+    Require(
+        staticStatus.UserMessage.Contains("BlackIris_Green", StringComparison.Ordinal) &&
+        staticStatus.UserMessage.Contains("官方动态壁纸", StringComparison.Ordinal),
+        "static wallpaper guidance was not shown");
+    bool staticIdRejected = false;
+    try
+    {
+        CacheSlotLocator.ReadSelectedResourceId(config);
+    }
+    catch (InvalidDataException ex)
+    {
+        staticIdRejected = ex.Message.Contains("静态壁纸", StringComparison.Ordinal);
+    }
+    Require(staticIdRejected, "static resource should not be treated as a dynamic ID");
+
+    File.WriteAllText(
+        config,
+        "[SETTING]\ncur_sel_res_id=333333333333333333333333\n" +
+        "cur_sel_res_type=2\ncur_sel_res_dynamic_type=0\n");
+    Require(
+        service.GetInstallationStatus().Issue ==
+        N0vaInstallationIssue.InvalidResourceSelection,
+        "invalid resource type was not reported");
+
     File.WriteAllText(
         config,
         "[SETTING]\ncur_sel_res_id=333333333333333333333333\n" +

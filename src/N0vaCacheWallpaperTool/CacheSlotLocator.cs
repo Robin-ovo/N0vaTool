@@ -58,12 +58,45 @@ internal static partial class CacheSlotLocator
 
     public static string ReadSelectedResourceId(string configFile)
     {
-        Match match = SelectedResourceRegex().Match(File.ReadAllText(configFile));
-        if (!match.Success)
+        N0vaSelectionInfo selection = ReadSelection(configFile);
+        if (!selection.FieldPresent || string.IsNullOrWhiteSpace(selection.ResourceId))
         {
             throw new InvalidDataException("N0va 配置中缺少 cur_sel_res_id，无法定位当前壁纸缓存。");
         }
-        return match.Groups["id"].Value;
+        if (selection.ResourceType == 0 || !selection.IsHexResourceId)
+        {
+            throw new InvalidDataException(
+                $"当前为静态壁纸：{selection.ResourceId}\n\n" +
+                "请先在人工桌面选择一个官方动态壁纸，确认开始播放后再回来替换。");
+        }
+        if (selection.ResourceType != 1)
+        {
+            throw new InvalidDataException(
+                $"当前资源不是官方动态壁纸：{selection.ResourceId}\n" +
+                $"cur_sel_res_type={selection.ResourceType?.ToString() ?? "缺失"}\n\n" +
+                "请重新选择一个官方动态壁纸后再试。");
+        }
+        return selection.ResourceId;
+    }
+
+    public static N0vaSelectionInfo ReadSelection(string configFile)
+    {
+        string text = ReadAllTextShared(configFile);
+        Match idMatch = SelectedResourceRegex().Match(text);
+        Match typeMatch = SelectedResourceTypeRegex().Match(text);
+        Match dynamicTypeMatch = SelectedDynamicTypeRegex().Match(text);
+        string resourceId = idMatch.Success
+            ? idMatch.Groups["value"].Value.Trim()
+            : "";
+
+        return new N0vaSelectionInfo
+        {
+            FieldPresent = idMatch.Success,
+            ResourceId = resourceId,
+            ResourceType = ParseNullableInt(typeMatch),
+            DynamicType = ParseNullableInt(dynamicTypeMatch),
+            IsHexResourceId = HexResourceIdRegex().IsMatch(resourceId)
+        };
     }
 
     private static CacheSlotInfo? LocateFromActiveManifest(
@@ -311,6 +344,25 @@ internal static partial class CacheSlotLocator
         }
     }
 
+    private static string ReadAllTextShared(string path)
+    {
+        using FileStream stream = new(
+            path,
+            FileMode.Open,
+            FileAccess.Read,
+            FileShare.ReadWrite | FileShare.Delete);
+        using StreamReader reader = new(stream);
+        return reader.ReadToEnd();
+    }
+
+    private static int? ParseNullableInt(Match match)
+    {
+        return match.Success &&
+               int.TryParse(match.Groups["value"].Value, out int value)
+            ? value
+            : null;
+    }
+
     private static bool TryReadLogTimestamp(string line, out DateTime time)
     {
         Match match = LogTimestampRegex().Match(line);
@@ -329,9 +381,24 @@ internal static partial class CacheSlotLocator
     }
 
     [GeneratedRegex(
-        @"(?m)^cur_sel_res_id=(?<id>[0-9a-fA-F]+)\s*$",
+        @"(?m)^[ \t]*cur_sel_res_id[ \t]*=[ \t]*(?<value>[^\r\n]*?)[ \t]*\r?$",
         RegexOptions.CultureInvariant)]
     private static partial Regex SelectedResourceRegex();
+
+    [GeneratedRegex(
+        @"(?m)^[ \t]*cur_sel_res_type[ \t]*=[ \t]*(?<value>-?\d+)[ \t]*\r?$",
+        RegexOptions.CultureInvariant)]
+    private static partial Regex SelectedResourceTypeRegex();
+
+    [GeneratedRegex(
+        @"(?m)^[ \t]*cur_sel_res_dynamic_type[ \t]*=[ \t]*(?<value>-?\d+)[ \t]*\r?$",
+        RegexOptions.CultureInvariant)]
+    private static partial Regex SelectedDynamicTypeRegex();
+
+    [GeneratedRegex(
+        @"^[0-9a-fA-F]{16,64}$",
+        RegexOptions.CultureInvariant)]
+    private static partial Regex HexResourceIdRegex();
 
     [GeneratedRegex(
         @"^\[(?<time>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3})\]",

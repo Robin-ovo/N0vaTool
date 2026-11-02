@@ -68,6 +68,9 @@ internal enum N0vaInstallationIssue
     UnsupportedVersion,
     MissingPlayer,
     MissingConfig,
+    MissingResourceSelection,
+    StaticWallpaperSelected,
+    InvalidResourceSelection,
     MissingCacheDirectory,
     MissingVideoCache,
     AccessDenied,
@@ -86,6 +89,22 @@ internal sealed class N0vaInstallationStatus
 
     public string UserMessage =>
         string.IsNullOrWhiteSpace(Details) ? Summary : Summary + "\n\n" + Details;
+}
+
+internal sealed class N0vaSelectionInfo
+{
+    public bool FieldPresent { get; init; }
+    public string ResourceId { get; init; } = "";
+    public int? ResourceType { get; init; }
+    public int? DynamicType { get; init; }
+    public bool IsHexResourceId { get; init; }
+    public bool IsDynamicSelection =>
+        FieldPresent &&
+        ResourceType == 1 &&
+        IsHexResourceId;
+    public bool IsStaticSelection =>
+        FieldPresent &&
+        (ResourceType == 0 || !IsHexResourceId);
 }
 
 internal sealed class ToolSettings

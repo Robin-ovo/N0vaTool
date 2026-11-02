@@ -102,6 +102,59 @@ internal sealed partial class N0vaCacheService
                 "请先正常启动一次人工桌面，等待配置初始化后再打开本工具。");
         }
 
+        N0vaSelectionInfo selection;
+        try
+        {
+            selection = CacheSlotLocator.ReadSelection(_configFile);
+        }
+        catch (Exception ex) when (
+            ex is IOException or UnauthorizedAccessException)
+        {
+            ToolLogger.Error("读取 N0va 当前壁纸配置失败", ex);
+            return CreateStatus(
+                N0vaInstallationIssue.AccessDenied,
+                version,
+                compatibleVersion,
+                "无法读取 N0va 当前壁纸配置",
+                ex.Message);
+        }
+
+        if (!selection.FieldPresent || string.IsNullOrWhiteSpace(selection.ResourceId))
+        {
+            return CreateStatus(
+                N0vaInstallationIssue.MissingResourceSelection,
+                version,
+                compatibleVersion,
+                "配置中尚未选择壁纸",
+                $"检查位置：{_configFile}\n\n" +
+                "请启动人工桌面并选择一个官方动态壁纸，等待配置写入后再试。");
+        }
+
+        if (selection.ResourceType == 0 || !selection.IsHexResourceId)
+        {
+            return CreateStatus(
+                N0vaInstallationIssue.StaticWallpaperSelected,
+                version,
+                compatibleVersion,
+                $"当前为静态壁纸：{selection.ResourceId}",
+                $"当前资源：{selection.ResourceId}\n" +
+                $"cur_sel_res_type={selection.ResourceType?.ToString() ?? "缺失"}\n\n" +
+                "这个状态不是配置缺失，也不是安装不完整。\n" +
+                "请先在人工桌面选择一个官方动态壁纸，确认开始播放后再回来替换。");
+        }
+
+        if (selection.ResourceType != 1)
+        {
+            return CreateStatus(
+                N0vaInstallationIssue.InvalidResourceSelection,
+                version,
+                compatibleVersion,
+                "当前壁纸资源类型不受支持",
+                $"当前资源：{selection.ResourceId}\n" +
+                $"cur_sel_res_type={selection.ResourceType?.ToString() ?? "缺失"}\n\n" +
+                "请重新选择一个官方动态壁纸后再试。");
+        }
+
         if (!Directory.Exists(_gameDirectory))
         {
             return CreateStatus(
@@ -625,9 +678,28 @@ internal sealed partial class N0vaCacheService
 
     private void EnsureInstalled()
     {
+        LogCurrentSelection();
         N0vaInstallationStatus status = GetInstallationStatus();
         if (!status.IsReady)
             throw new InvalidOperationException(status.UserMessage);
+    }
+
+    private void LogCurrentSelection()
+    {
+        if (!File.Exists(_configFile)) return;
+        try
+        {
+            N0vaSelectionInfo selection = CacheSlotLocator.ReadSelection(_configFile);
+            ToolLogger.Info(
+                $"当前壁纸选择：字段存在={selection.FieldPresent}，" +
+                $"资源={selection.ResourceId}，" +
+                $"类型={selection.ResourceType?.ToString() ?? "缺失"}，" +
+                $"动态类型={selection.DynamicType?.ToString() ?? "缺失"}");
+        }
+        catch (Exception ex)
+        {
+            ToolLogger.Warning("读取当前壁纸选择失败：" + ex.Message);
+        }
     }
 
     private string ReadFileVersion()
