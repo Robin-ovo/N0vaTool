@@ -639,7 +639,9 @@ internal sealed class MainForm : Form
 
         try
         {
-            SetBusy(true, "正在生成 NDF 并替换 N0va 缓存…");
+            SetBusy(true, "正在检测人工桌面安装状态…");
+            DetectInstallation(userInitiated: false);
+            SetStatus("正在生成 NDF 并替换 N0va 缓存…");
             CacheOperationResult result = _cache.Apply(profile);
             _store.MarkApplied(profile.Id);
             RefreshGrid(profile.Id);
@@ -957,7 +959,9 @@ internal sealed class MainForm : Form
         bool hasSelection = !string.IsNullOrWhiteSpace(_selectedId);
         bool installationReady = _cache.GetInstallationStatus().IsReady;
         _saveButton.Enabled = !_busy && hasSelection;
-        _applyButton.Enabled = !_busy && hasSelection && installationReady;
+        // Keep this clickable so an installation performed while the tool is open
+        // can be detected on demand and missing components can be reported.
+        _applyButton.Enabled = !_busy && hasSelection;
         _restoreButton.Enabled = !_busy && installationReady;
         _repairButton.Enabled = !_busy && File.Exists(
             Path.Combine(_cache.CurrentHostDirectory, "N0vaDesktop.exe"));
