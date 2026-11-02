@@ -34,6 +34,7 @@ string testRoot = Path.Combine(
     "N0vaCacheWallpaperTool.Tests-" + Guid.NewGuid().ToString("N"));
 Directory.CreateDirectory(testRoot);
 Environment.SetEnvironmentVariable("N0VA_CACHE_TOOL_DATA_DIR", Path.Combine(testRoot, "data"));
+Environment.SetEnvironmentVariable("N0VA_CACHE_TOOL_LOG_DIR", Path.Combine(testRoot, "logs"));
 string source = sourceArgument is not null
     ? Path.GetFullPath(sourceArgument)
     : Path.Combine(testRoot, "synthetic-source.mp4");
@@ -77,8 +78,28 @@ try
     Require(rejected, "too-small slot was not rejected");
 
     VerifyReplacementDeletionRediscovery(source, sourceLength, testRoot);
+    VerifyInstallationDetectionAndLogs(source, sourceLength, testRoot);
     if (live)
     {
+        IReadOnlyList<N0vaInstallationCandidate> liveCandidates =
+            N0vaInstallationLocator.FindCandidates(null);
+        Require(
+            liveCandidates.Any(candidate =>
+                string.Equals(
+                    candidate.HostDirectory,
+                    @"C:\Program Files\N0vaDesktop",
+                    StringComparison.OrdinalIgnoreCase)),
+            "live automatic installation detection did not find the current N0va install");
+
+        N0vaCacheService liveService = new(
+            @"C:\Program Files\N0vaDesktop",
+            manageProcesses: false,
+            validateVersion: true);
+        N0vaInstallationStatus liveStatus = liveService.GetInstallationStatus();
+        Require(liveStatus.IsReady, "live installation status is not ready: " + liveStatus.UserMessage);
+        Console.WriteLine(
+            $"LIVE installation version={liveStatus.Version} status={liveStatus.Summary}");
+
         CacheSlotInfo liveSlot = CacheSlotLocator.Locate(
             @"C:\Program Files\N0vaDesktop",
             sourceLength)
@@ -86,7 +107,8 @@ try
         Console.WriteLine(
             $"LIVE slot={liveSlot.FileName} length={liveSlot.Length} source={liveSlot.DiscoverySource}");
     }
-    Console.WriteLine("OK: dynamic NDF sizes, invalid-slot rejection, and cache-slot discovery");
+    Console.WriteLine(
+        "OK: NDF, cache-slot discovery, installation status, manual path, and log deletion");
     return 0;
 }
 catch (Exception ex)
@@ -170,6 +192,113 @@ static void VerifyReplacementDeletionRediscovery(string source, long sourceLengt
             Path.GetFullPath(secondSlot),
             StringComparison.OrdinalIgnoreCase),
         "rediscovered the deleted slot instead of the new current slot");
+}
+
+static void VerifyInstallationDetectionAndLogs(
+    string source,
+    long sourceLength,
+    string testRoot)
+{
+    Require(N0vaCacheService.IsCompatibleVersion("2.2.1.4"), "2.2.1.4 should be compatible");
+    Require(N0vaCacheService.IsCompatibleVersion("2.2.9.1"), "2.2.x should be compatible");
+    Require(!N0vaCacheService.IsCompatibleVersion("2.3.0.0"), "2.3 should be rejected");
+    Require(!N0vaCacheService.IsCompatibleVersion("1.2.0.0"), "1.2 should be rejected");
+    Require(!N0vaCacheService.IsCompatibleVersion("unknown"), "unknown version should be rejected");
+
+    string host = Path.Combine(testRoot, "installation-host");
+    Directory.CreateDirectory(host);
+    N0vaCacheService service = new(host, manageProcesses: false, validateVersion: false);
+    Require(
+        service.GetInstallationStatus().Issue == N0vaInstallationIssue.MissingExecutable,
+        "missing executable was not reported");
+
+    string executable = Path.Combine(host, "N0vaDesktop.exe");
+    File.WriteAllBytes(executable, []);
+    N0vaCacheService versionChecked = new(
+        host,
+        manageProcesses: false,
+        validateVersion: true);
+    Require(
+        versionChecked.GetInstallationStatus().Issue ==
+        N0vaInstallationIssue.UnsupportedVersion,
+        "unsupported version was not reported");
+    Require(
+        service.GetInstallationStatus().Issue == N0vaInstallationIssue.MissingPlayer,
+        "missing DPPlayer was not reported");
+
+    File.WriteAllBytes(Path.Combine(host, "DPPlayer.exe"), []);
+    Require(
+        service.GetInstallationStatus().Issue == N0vaInstallationIssue.MissingConfig,
+        "missing config was not reported");
+
+    string config = Path.Combine(host, "config.ini");
+    File.WriteAllText(
+        config,
+        "[SETTING]\ncur_sel_res_id=333333333333333333333333\n" +
+        "cur_sel_res_type=1\ncur_sel_res_dynamic_type=0\n");
+    N0vaInstallationStatus missingCache = service.GetInstallationStatus();
+    Require(
+        missingCache.Issue == N0vaInstallationIssue.MissingCacheDirectory,
+        "missing cache directory was not reported");
+    Require(
+        missingCache.UserMessage.Contains("官方动态壁纸", StringComparison.Ordinal),
+        "missing cache guidance was not shown");
+
+    string game = Path.Combine(host, "N0vaDesktopCache", "game");
+    Directory.CreateDirectory(game);
+    Require(
+        service.GetInstallationStatus().Issue == N0vaInstallationIssue.MissingVideoCache,
+        "missing video cache was not reported");
+
+    NdfBuilder.Build(
+        source,
+        Path.Combine(game, "installation-test.ndf"),
+        sourceLength + 4096);
+    Require(
+        service.GetInstallationStatus().IsReady,
+        "complete synthetic installation should be ready");
+
+    Require(
+        N0vaInstallationLocator.TryNormalizeHostDirectory(executable, out string byExe) &&
+        string.Equals(byExe, host, StringComparison.OrdinalIgnoreCase),
+        "manual path normalization by executable failed");
+    Require(
+        N0vaInstallationLocator.TryNormalizeHostDirectory(host, out string byDirectory) &&
+        string.Equals(byDirectory, host, StringComparison.OrdinalIgnoreCase),
+        "manual path normalization by directory failed");
+    Require(
+        N0vaInstallationLocator.TryNormalizeHostDirectory(
+            "\"" + executable + "\",0",
+            out string byDisplayIcon) &&
+        string.Equals(byDisplayIcon, host, StringComparison.OrdinalIgnoreCase),
+        "registry DisplayIcon path normalization failed");
+
+    IReadOnlyList<N0vaInstallationCandidate> candidates =
+        N0vaInstallationLocator.FindCandidates(host);
+    Require(
+        candidates.Any(candidate =>
+            string.Equals(
+                candidate.HostDirectory,
+                host,
+                StringComparison.OrdinalIgnoreCase)),
+        "saved manual installation directory was not considered");
+
+    SettingsStore settings = new();
+    settings.SetN0vaInstallDirectory(host);
+    SettingsStore reloadedSettings = new();
+    Require(
+        string.Equals(
+            reloadedSettings.N0vaInstallDirectory,
+            Path.GetFullPath(host),
+            StringComparison.OrdinalIgnoreCase),
+        "manual installation path was not persisted");
+
+    ToolLogger.Info("test log entry");
+    Require(File.Exists(ToolLogger.CurrentFile), "log file was not created");
+    Require(ToolLogger.DeleteLogs() >= 1, "log files were not deleted");
+    Require(
+        !Directory.EnumerateFiles(ToolPaths.LogDirectory, "*.log").Any(),
+        "log directory still contains logs");
 }
 
 static void Require(bool condition, string message)

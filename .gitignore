@@ -6,6 +6,7 @@
 artifacts/
 publish/
 TestResults/
+logs/
 
 *.user
 *.suo

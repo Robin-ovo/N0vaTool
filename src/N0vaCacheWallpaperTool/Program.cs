@@ -16,7 +16,12 @@ internal static class Program
         try
         {
             ToolPaths.EnsureCreated();
+            ToolLogger.Info(
+                $"程序启动：版本={Application.ProductVersion}，" +
+                $"目录={AppContext.BaseDirectory}，" +
+                $"系统={Environment.OSVersion}");
             Application.Run(new MainForm());
+            ToolLogger.Info("程序正常退出。");
         }
         catch (Exception ex)
         {
@@ -31,6 +36,7 @@ internal static class Program
 
     private static void WriteCrash(Exception? exception)
     {
+        ToolLogger.Error("未处理异常", exception ?? new Exception("未知异常"));
         try
         {
             Directory.CreateDirectory(ToolPaths.Root);

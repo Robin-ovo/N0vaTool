@@ -11,6 +11,8 @@
     <Compile Include="..\..\src\N0vaCacheWallpaperTool\CacheSlotLocator.cs" Link="CacheSlotLocator.cs" />
     <Compile Include="..\..\src\N0vaCacheWallpaperTool\Models.cs" Link="Models.cs" />
     <Compile Include="..\..\src\N0vaCacheWallpaperTool\ToolPaths.cs" Link="ToolPaths.cs" />
+    <Compile Include="..\..\src\N0vaCacheWallpaperTool\ToolLogger.cs" Link="ToolLogger.cs" />
+    <Compile Include="..\..\src\N0vaCacheWallpaperTool\N0vaInstallationLocator.cs" Link="N0vaInstallationLocator.cs" />
     <Compile Include="..\..\src\N0vaCacheWallpaperTool\N0vaCacheService.cs" Link="N0vaCacheService.cs" />
   </ItemGroup>
 </Project>

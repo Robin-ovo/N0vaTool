@@ -60,3 +60,36 @@ internal sealed class CacheOperationResult
     public long SlotLength { get; init; }
     public string DiscoverySource { get; init; } = "";
 }
+
+internal enum N0vaInstallationIssue
+{
+    Ready,
+    MissingExecutable,
+    UnsupportedVersion,
+    MissingPlayer,
+    MissingConfig,
+    MissingCacheDirectory,
+    MissingVideoCache,
+    AccessDenied,
+    Unknown
+}
+
+internal sealed class N0vaInstallationStatus
+{
+    public N0vaInstallationIssue Issue { get; init; }
+    public string HostDirectory { get; init; } = "";
+    public string Version { get; init; } = "";
+    public bool VersionCompatible { get; init; }
+    public bool IsReady => Issue == N0vaInstallationIssue.Ready;
+    public string Summary { get; init; } = "";
+    public string Details { get; init; } = "";
+
+    public string UserMessage =>
+        string.IsNullOrWhiteSpace(Details) ? Summary : Summary + "\n\n" + Details;
+}
+
+internal sealed class ToolSettings
+{
+    public int Version { get; set; } = 1;
+    public string N0vaInstallDirectory { get; set; } = "";
+}

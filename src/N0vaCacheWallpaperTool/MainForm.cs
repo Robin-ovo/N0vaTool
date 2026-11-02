@@ -12,13 +12,15 @@ internal sealed class MainForm : Form
     private static readonly Color Muted = Color.FromArgb(159, 174, 192);
 
     private readonly ProfileStore _store = new();
-    private readonly N0vaCacheService _cache = new();
+    private readonly SettingsStore _settings = new();
+    private N0vaCacheService _cache = new();
     private readonly DataGridView _grid = new();
     private readonly TextBox _title = CreateTextBox();
     private readonly ComboBox _game = CreateComboBox();
     private readonly TextBox _author = CreateTextBox();
     private readonly ComboBox _type = CreateComboBox();
     private readonly TextBox _source = CreateTextBox();
+    private readonly TextBox _installationPath = CreateTextBox();
     private readonly Label _status = new();
     private readonly CheckBox _launchAfterApply = new();
     private readonly Button _applyButton;
@@ -134,6 +136,7 @@ internal sealed class MainForm : Form
         Shown += (_, _) => LayoutLeftPanel();
 
         BuildEditor(rightPanel);
+        DetectInstallation(userInitiated: false);
         RefreshGrid(_store.LastAppliedId);
 
         string? layoutLog = Environment.GetEnvironmentVariable("N0VA_CACHE_TOOL_LAYOUT_LOG");
@@ -229,13 +232,44 @@ internal sealed class MainForm : Form
         };
         parent.Controls.Add(editor);
 
+        Label installHeading = new()
+        {
+            Text = "人工桌面安装位置",
+            AutoSize = true,
+            ForeColor = TextColor,
+            Font = new Font("Microsoft YaHei UI", 13f, FontStyle.Bold),
+            Margin = new Padding(0, 0, 0, 10)
+        };
+        editor.Controls.Add(installHeading);
+
+        _installationPath.ReadOnly = true;
+        AddField(editor, "N0vaDesktop.exe 所在目录", _installationPath, 58);
+
+        FlowLayoutPanel installButtons = new()
+        {
+            Dock = DockStyle.Fill,
+            Height = 45,
+            WrapContents = false,
+            FlowDirection = FlowDirection.LeftToRight,
+            BackColor = Background
+        };
+        editor.Controls.Add(installButtons);
+
+        Button chooseInstallButton = CreateButton("选择安装目录", 132, true);
+        chooseInstallButton.Click += (_, _) => SelectInstallationDirectory();
+        installButtons.Controls.Add(chooseInstallButton);
+
+        Button autoDetectButton = CreateButton("自动检测", 108, false);
+        autoDetectButton.Click += (_, _) => DetectInstallation(userInitiated: true);
+        installButtons.Controls.Add(autoDetectButton);
+
         Label heading = new()
         {
             Text = "壁纸信息",
             AutoSize = true,
             ForeColor = TextColor,
             Font = new Font("Microsoft YaHei UI", 13f, FontStyle.Bold),
-            Margin = new Padding(0, 0, 0, 14)
+            Margin = new Padding(0, 10, 0, 14)
         };
         editor.Controls.Add(heading);
 
@@ -286,11 +320,134 @@ internal sealed class MainForm : Form
         folderButton.Click += (_, _) => OpenDataDirectory();
         buttons.Controls.Add(folderButton);
 
-        if (!_cache.IsInstalled)
+        FlowLayoutPanel logButtons = new()
         {
-            _applyButton.Enabled = false;
-            _restoreButton.Enabled = false;
+            Dock = DockStyle.Fill,
+            Height = 45,
+            WrapContents = false,
+            FlowDirection = FlowDirection.LeftToRight,
+            BackColor = Background
+        };
+        editor.Controls.Add(logButtons);
+
+        Button openLogsButton = CreateButton("打开日志", 108, false);
+        openLogsButton.Click += (_, _) => OpenLogDirectory();
+        logButtons.Controls.Add(openLogsButton);
+
+        Button deleteLogsButton = CreateButton("删除日志", 108, false);
+        deleteLogsButton.Click += (_, _) => DeleteLogs();
+        logButtons.Controls.Add(deleteLogsButton);
+    }
+
+    private void SelectInstallationDirectory()
+    {
+        using FolderBrowserDialog picker = new()
+        {
+            Description = "请选择包含 N0vaDesktop.exe 的人工桌面安装目录",
+            UseDescriptionForTitle = true,
+            ShowNewFolderButton = false,
+            SelectedPath = Directory.Exists(_cache.CurrentHostDirectory)
+                ? _cache.CurrentHostDirectory
+                : Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles)
+        };
+        if (picker.ShowDialog(this) != DialogResult.OK) return;
+
+        if (!N0vaInstallationLocator.TryNormalizeHostDirectory(
+                picker.SelectedPath,
+                out string hostDirectory))
+        {
+            ToolLogger.Warning(
+                $"手动选择目录无效，没有 N0vaDesktop.exe：{picker.SelectedPath}");
+            MessageBox.Show(
+                this,
+                "所选目录中没有找到 N0vaDesktop.exe。\n\n" +
+                "请选择真正包含 N0vaDesktop.exe 的目录，而不是快捷方式所在目录。",
+                "安装目录无效",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Warning);
+            return;
         }
+
+        _settings.SetN0vaInstallDirectory(hostDirectory);
+        _cache = new N0vaCacheService(
+            hostDirectory,
+            manageProcesses: true,
+            validateVersion: true);
+        _installationPath.Text = hostDirectory;
+        N0vaInstallationStatus status = _cache.GetInstallationStatus();
+        ToolLogger.Info(
+            $"用户手动选择安装目录：{hostDirectory}；状态：{status.Summary}");
+        ShowInstallationStatus(status);
+        UpdateStatus();
+        UpdateActionState();
+    }
+
+    private void DetectInstallation(bool userInitiated)
+    {
+        if (userInitiated)
+        {
+            _settings.SetN0vaInstallDirectory(null);
+            ToolLogger.Info("用户触发自动检测，已清除手动安装路径。");
+        }
+
+        IReadOnlyList<N0vaInstallationCandidate> candidates =
+            N0vaInstallationLocator.FindCandidates(
+                _settings.N0vaInstallDirectory);
+
+        N0vaCacheService? selected = null;
+        N0vaCacheService? compatibleFallback = null;
+        N0vaCacheService? incompatibleFallback = null;
+        foreach (N0vaInstallationCandidate candidate in candidates)
+        {
+            N0vaCacheService service = new(
+                candidate.HostDirectory,
+                manageProcesses: true,
+                validateVersion: true);
+            N0vaInstallationStatus status = service.GetInstallationStatus();
+            ToolLogger.Info(
+                $"安装检测（{candidate.Source}）：{candidate.HostDirectory}；" +
+                $"版本={status.Version}；结果={status.Summary}");
+
+            if (status.IsReady)
+            {
+                selected = service;
+                break;
+            }
+            if (status.VersionCompatible)
+            {
+                compatibleFallback ??= service;
+            }
+            else
+            {
+                incompatibleFallback ??= service;
+            }
+        }
+
+        _cache = selected ?? compatibleFallback ?? incompatibleFallback ?? new N0vaCacheService();
+        _installationPath.Text = File.Exists(
+            Path.Combine(_cache.CurrentHostDirectory, "N0vaDesktop.exe"))
+            ? _cache.CurrentHostDirectory
+            : "未找到，请点击“选择安装目录”";
+
+        N0vaInstallationStatus finalStatus = _cache.GetInstallationStatus();
+        ToolLogger.Info(
+            $"最终安装目录：{_cache.CurrentHostDirectory}；状态：{finalStatus.Summary}");
+
+        UpdateStatus();
+        UpdateActionState();
+        if (userInitiated) ShowInstallationStatus(finalStatus);
+    }
+
+    private void ShowInstallationStatus(N0vaInstallationStatus status)
+    {
+        ToolLogger.Info(
+            $"显示安装状态：{status.Issue}；{status.HostDirectory}；{status.Version}");
+        MessageBox.Show(
+            this,
+            status.UserMessage,
+            status.IsReady ? "N0va Desktop 已就绪" : "N0va Desktop 检测结果",
+            MessageBoxButtons.OK,
+            status.IsReady ? MessageBoxIcon.Information : MessageBoxIcon.Warning);
     }
 
     private void BuildFooter()
@@ -307,7 +464,18 @@ internal sealed class MainForm : Form
 
         _status.AutoSize = true;
         _status.ForeColor = Muted;
+        _status.Cursor = Cursors.Hand;
         _status.Location = new Point(22, 17);
+        _status.Click += (_, _) =>
+        {
+            if (_status.Tag is not string message || string.IsNullOrWhiteSpace(message)) return;
+            MessageBox.Show(
+                this,
+                message,
+                "N0va Desktop 状态",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Information);
+        };
         footer.Controls.Add(_status);
 
         _launchAfterApply.AutoSize = true;
@@ -319,7 +487,6 @@ internal sealed class MainForm : Form
         _launchAfterApply.Location = new Point(Width - 250, 16);
         footer.Controls.Add(_launchAfterApply);
         footer.Resize += (_, _) => _launchAfterApply.Left = footer.ClientSize.Width - 238;
-        UpdateStatus();
     }
 
     private static void AddField(
@@ -393,6 +560,7 @@ internal sealed class MainForm : Form
         }
         catch (Exception ex)
         {
+            ToolLogger.Error("导入 MP4 失败", ex);
             MessageBox.Show(this, ex.Message, "导入失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
         finally
@@ -476,8 +644,9 @@ internal sealed class MainForm : Form
                     MessageBoxIcon.Information);
             }
         }
-        catch (UnauthorizedAccessException)
+        catch (UnauthorizedAccessException ex)
         {
+            ToolLogger.Error("替换壁纸失败：没有写入权限", ex);
             MessageBox.Show(
                 this,
                 "没有写入人工桌面目录的权限。请以管理员身份运行本工具。",
@@ -487,6 +656,7 @@ internal sealed class MainForm : Form
         }
         catch (Exception ex)
         {
+            ToolLogger.Error("替换壁纸失败", ex);
             MessageBox.Show(this, ex.Message, "替换失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
         finally
@@ -499,7 +669,7 @@ internal sealed class MainForm : Form
     {
         DialogResult answer = MessageBox.Show(
             this,
-            "恢复到工具内置的官方缓存视频？\n当前替换视频会退出使用。",
+            "恢复到当前缓存槽替换前的官方备份？\n当前替换视频会退出使用。",
             "恢复官方视频",
             MessageBoxButtons.YesNo,
             MessageBoxIcon.Question);
@@ -526,6 +696,7 @@ internal sealed class MainForm : Form
         }
         catch (Exception ex)
         {
+            ToolLogger.Error("恢复官方缓存失败", ex);
             MessageBox.Show(this, ex.Message, "恢复失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
         finally
@@ -638,10 +809,13 @@ internal sealed class MainForm : Form
 
     private void UpdateStatus()
     {
-        if (!_cache.IsInstalled)
+        N0vaInstallationStatus installation = _cache.GetInstallationStatus();
+        _status.Tag = installation.UserMessage;
+        if (!installation.IsReady)
         {
-            _status.Text = "未检测到完整的 N0va Desktop 2.2.1.4";
+            _status.Text = installation.Summary;
             _status.ForeColor = Color.FromArgb(245, 120, 120);
+            UpdateActionState();
             return;
         }
 
@@ -655,6 +829,7 @@ internal sealed class MainForm : Form
             _status.Text = "状态读取失败：" + ex.Message;
             _status.ForeColor = Color.FromArgb(245, 120, 120);
         }
+        UpdateActionState();
     }
 
     private void SetStatus(string text)
@@ -671,6 +846,7 @@ internal sealed class MainForm : Form
         }
         catch
         {
+            ToolLogger.Warning("替换完成后自动启动人工桌面失败。");
             MessageBox.Show(
                 this,
                 failureMessage,
@@ -684,7 +860,6 @@ internal sealed class MainForm : Form
     {
         _busy = busy;
         UseWaitCursor = busy;
-        _restoreButton.Enabled = !busy && _cache.IsInstalled;
         UpdateActionState();
         if (!string.IsNullOrWhiteSpace(message))
         {
@@ -706,8 +881,10 @@ internal sealed class MainForm : Form
     private void UpdateActionState()
     {
         bool hasSelection = !string.IsNullOrWhiteSpace(_selectedId);
+        bool installationReady = _cache.GetInstallationStatus().IsReady;
         _saveButton.Enabled = !_busy && hasSelection;
-        _applyButton.Enabled = !_busy && hasSelection && _cache.IsInstalled;
+        _applyButton.Enabled = !_busy && hasSelection && installationReady;
+        _restoreButton.Enabled = !_busy && installationReady;
     }
 
     private static void OpenDataDirectory()
@@ -719,6 +896,54 @@ internal sealed class MainForm : Form
             Arguments = "\"" + ToolPaths.Root + "\"",
             UseShellExecute = true
         });
+    }
+
+    private static void OpenLogDirectory()
+    {
+        Directory.CreateDirectory(ToolPaths.LogDirectory);
+        Process.Start(new ProcessStartInfo
+        {
+            FileName = "explorer.exe",
+            Arguments = "\"" + ToolPaths.LogDirectory + "\"",
+            UseShellExecute = true
+        });
+    }
+
+    private void DeleteLogs()
+    {
+        if (MessageBox.Show(
+                this,
+                "删除程序 logs 文件夹中的所有日志？\n\n" +
+                "不会删除壁纸记录、导入的视频或官方缓存备份。",
+                "删除日志",
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Question) != DialogResult.Yes)
+        {
+            return;
+        }
+
+        try
+        {
+            int deleted = ToolLogger.DeleteLogs();
+            _status.Text = $"已删除 {deleted} 个日志文件";
+            _status.ForeColor = Accent;
+            _status.Tag = $"日志目录：{ToolPaths.LogDirectory}\n已删除：{deleted} 个文件";
+            MessageBox.Show(
+                this,
+                $"已删除 {deleted} 个日志文件。\n\n{ToolPaths.LogDirectory}",
+                "删除完成",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Information);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(
+                this,
+                "删除日志失败：" + ex.Message,
+                "删除日志",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Error);
+        }
     }
 
     private static TextBox CreateTextBox()

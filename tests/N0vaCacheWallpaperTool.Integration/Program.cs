@@ -35,6 +35,9 @@ File.WriteAllBytes(Path.Combine(host, "DPPlayer.exe"), []);
 Environment.SetEnvironmentVariable(
     "N0VA_CACHE_TOOL_DATA_DIR",
     Path.Combine(testRoot, "data"));
+Environment.SetEnvironmentVariable(
+    "N0VA_CACHE_TOOL_LOG_DIR",
+    Path.Combine(testRoot, "logs"));
 
 StringBuilder result = new();
 void Record(string value)

@@ -2,10 +2,11 @@ using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 
 namespace N0vaCacheWallpaperTool;
 
-internal sealed class N0vaCacheService
+internal sealed partial class N0vaCacheService
 {
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -47,18 +48,123 @@ internal sealed class N0vaCacheService
         _validateVersion = validateVersion;
     }
 
+    public string CurrentHostDirectory => _hostDirectory;
     public string CurrentGameDirectory => _gameDirectory;
 
-    public bool IsInstalled =>
-        File.Exists(_hostExecutable) &&
-        File.Exists(_playerExecutable) &&
-        Directory.Exists(_gameDirectory) &&
-        File.Exists(_configFile) &&
-        IsSupportedVersion();
+    public N0vaInstallationStatus GetInstallationStatus()
+    {
+        string version = ReadFileVersion();
+        bool compatibleVersion =
+            !_validateVersion || IsCompatibleVersion(version);
+
+        if (!File.Exists(_hostExecutable))
+        {
+            return CreateStatus(
+                N0vaInstallationIssue.MissingExecutable,
+                version,
+                compatibleVersion,
+                "未找到 N0vaDesktop.exe",
+                $"检查位置：{_hostExecutable}\n\n" +
+                "如果人工桌面安装在非默认目录，请点击“选择安装目录”。");
+        }
+
+        if (!compatibleVersion)
+        {
+            return CreateStatus(
+                N0vaInstallationIssue.UnsupportedVersion,
+                version,
+                false,
+                "N0va Desktop 版本不兼容",
+                $"检测到的版本：{(string.IsNullOrWhiteSpace(version) ? "无法读取" : version)}\n" +
+                "当前版本支持 N0va Desktop 2.2.x。\n" +
+                "如果检测路径不对，请点击“选择安装目录”。");
+        }
+
+        if (!File.Exists(_playerExecutable))
+        {
+            return CreateStatus(
+                N0vaInstallationIssue.MissingPlayer,
+                version,
+                compatibleVersion,
+                "缺少 DPPlayer.exe",
+                $"检查位置：{_playerExecutable}\n\n" +
+                "请确认人工桌面安装完整，或检查安全软件是否隔离了该文件。");
+        }
+
+        if (!File.Exists(_configFile))
+        {
+            return CreateStatus(
+                N0vaInstallationIssue.MissingConfig,
+                version,
+                compatibleVersion,
+                "缺少 N0va 配置文件",
+                $"检查位置：{_configFile}\n\n" +
+                "请先正常启动一次人工桌面，等待配置初始化后再打开本工具。");
+        }
+
+        if (!Directory.Exists(_gameDirectory))
+        {
+            return CreateStatus(
+                N0vaInstallationIssue.MissingCacheDirectory,
+                version,
+                compatibleVersion,
+                "请先选择官方动态壁纸",
+                $"检查位置：{_gameDirectory}\n\n" +
+                "安装本身可能没有问题。请启动人工桌面，并选择一个官方动态壁纸；" +
+                "开始播放后再回到本工具。");
+        }
+
+        try
+        {
+            bool hasVideo = Directory
+                .EnumerateFiles(_gameDirectory, "*.ndf", SearchOption.TopDirectoryOnly)
+                .Any(NdfBuilder.IsVideoNdf);
+            if (!hasVideo)
+            {
+                return CreateStatus(
+                    N0vaInstallationIssue.MissingVideoCache,
+                    version,
+                    compatibleVersion,
+                    "请先选择官方动态壁纸",
+                    $"缓存目录：{_gameDirectory}\n\n" +
+                    "目录中还没有可识别的视频 NDF。请选择一个官方动态壁纸，" +
+                    "确认开始播放后再回来。");
+            }
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            ToolLogger.Error("读取动态壁纸缓存目录失败", ex);
+            return CreateStatus(
+                N0vaInstallationIssue.AccessDenied,
+                version,
+                compatibleVersion,
+                "没有权限读取动态壁纸缓存",
+                ex.Message);
+        }
+
+        return CreateStatus(
+            N0vaInstallationIssue.Ready,
+            version,
+            true,
+            "N0va Desktop 已就绪",
+            $"安装目录：{_hostDirectory}\n版本：{version}");
+    }
+
+    public static bool IsCompatibleVersion(string? rawVersion)
+    {
+        if (string.IsNullOrWhiteSpace(rawVersion)) return false;
+        Match match = NumericVersionRegex().Match(rawVersion);
+        if (!match.Success) return false;
+        return int.TryParse(match.Groups["major"].Value, out int major) &&
+               int.TryParse(match.Groups["minor"].Value, out int minor) &&
+               major == 2 &&
+               minor == 2;
+    }
 
     public string DescribeCurrentSlot()
     {
-        if (!IsInstalled) return "未检测到完整的 N0va Desktop 2.2.1.4";
+        N0vaInstallationStatus installation = GetInstallationStatus();
+        if (!installation.IsReady) return installation.Summary;
 
         try
         {
@@ -115,6 +221,8 @@ internal sealed class N0vaCacheService
         {
             throw new InvalidOperationException("这个缓存槽只能应用动态 MP4 壁纸。");
         }
+        ToolLogger.Info(
+            $"开始替换壁纸：{profile.Title}，安装目录：{_hostDirectory}，源文件：{profile.SourcePath}");
         EnsureInstalled();
         string resourceId = CacheSlotLocator.ReadSelectedResourceId(_configFile);
         CacheSlotInfo? slot = CacheSlotLocator.Locate(_hostDirectory, 0);
@@ -206,6 +314,9 @@ internal sealed class N0vaCacheService
                 throw;
             }
 
+            ToolLogger.Info(
+                $"替换完成：槽={slot.FileName}，资源ID={currentResourceId}，" +
+                $"发现方式={slot.DiscoverySource}，新哈希={replacementHash}");
             return new CacheOperationResult
             {
                 ResourceId = currentResourceId,
@@ -253,6 +364,9 @@ internal sealed class N0vaCacheService
             throw new InvalidDataException("当前槽官方备份大小不正确，已停止恢复。");
         }
 
+        ToolLogger.Info(
+            $"开始恢复当前槽官方备份：槽={Path.GetFileName(manifest.SlotPath)}，" +
+            $"资源ID={currentResourceId}");
         StopN0va();
         BackupConfig();
         string temp = manifest.SlotPath + ".n0vatool-restore-" + Guid.NewGuid().ToString("N") + ".tmp";
@@ -274,6 +388,9 @@ internal sealed class N0vaCacheService
                 manifest.SlotPath,
                 File.GetLastWriteTimeUtc(manifest.OriginalBackupPath));
             TryDelete(ToolPaths.ActiveSlotManifest);
+            ToolLogger.Info(
+                $"恢复完成：槽={Path.GetFileName(manifest.SlotPath)}，" +
+                $"哈希={manifest.OriginalSha256}");
 
             return new CacheOperationResult
             {
@@ -508,32 +625,39 @@ internal sealed class N0vaCacheService
 
     private void EnsureInstalled()
     {
-        if (!File.Exists(_hostExecutable) ||
-            !File.Exists(_playerExecutable) ||
-            !Directory.Exists(_gameDirectory) ||
-            !File.Exists(_configFile) ||
-            !IsSupportedVersion())
-        {
-            throw new InvalidOperationException(
-                "没有找到完整的 N0va Desktop 2.2.1.4 安装。" +
-                "请确认安装路径仍为 C:\\Program Files\\N0vaDesktop。");
-        }
+        N0vaInstallationStatus status = GetInstallationStatus();
+        if (!status.IsReady)
+            throw new InvalidOperationException(status.UserMessage);
     }
 
-    private bool IsSupportedVersion()
+    private string ReadFileVersion()
     {
-        if (!_validateVersion) return true;
         try
         {
-            return string.Equals(
-                FileVersionInfo.GetVersionInfo(_hostExecutable).FileVersion,
-                "2.2.1.4",
-                StringComparison.OrdinalIgnoreCase);
+            return FileVersionInfo.GetVersionInfo(_hostExecutable).FileVersion ?? "";
         }
         catch
         {
-            return false;
+            return "";
         }
+    }
+
+    private N0vaInstallationStatus CreateStatus(
+        N0vaInstallationIssue issue,
+        string version,
+        bool versionCompatible,
+        string summary,
+        string details)
+    {
+        return new N0vaInstallationStatus
+        {
+            Issue = issue,
+            HostDirectory = _hostDirectory,
+            Version = version,
+            VersionCompatible = versionCompatible,
+            Summary = summary,
+            Details = details
+        };
     }
 
     private static InvalidOperationException SlotNotFound()
@@ -545,4 +669,9 @@ internal sealed class N0vaCacheService
             "如果当前官方视频很短，它的缓存可能放不下这个 MP4，" +
             "请改选一个时长更长的官方动态壁纸。");
     }
+
+    [GeneratedRegex(
+        @"(?<!\d)(?<major>\d+)\.(?<minor>\d+)",
+        RegexOptions.CultureInvariant)]
+    private static partial Regex NumericVersionRegex();
 }
