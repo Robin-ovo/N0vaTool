@@ -25,6 +25,7 @@ internal sealed class MainForm : Form
     private readonly CheckBox _launchAfterApply = new();
     private readonly Button _applyButton;
     private Button _restoreButton = null!;
+    private Button _repairButton = null!;
     private readonly Button _saveButton;
     private string? _selectedId;
     private bool _refreshingGrid;
@@ -319,6 +320,20 @@ internal sealed class MainForm : Form
         Button folderButton = CreateButton("打开数据目录", 128, false);
         folderButton.Click += (_, _) => OpenDataDirectory();
         buttons.Controls.Add(folderButton);
+
+        FlowLayoutPanel repairButtons = new()
+        {
+            Dock = DockStyle.Fill,
+            Height = 45,
+            WrapContents = false,
+            FlowDirection = FlowDirection.LeftToRight,
+            BackColor = Background
+        };
+        editor.Controls.Add(repairButtons);
+
+        _repairButton = CreateButton("修复启动状态", 146, false);
+        _repairButton.Click += (_, _) => RepairStartup();
+        repairButtons.Controls.Add(_repairButton);
 
         FlowLayoutPanel logButtons = new()
         {
@@ -705,6 +720,65 @@ internal sealed class MainForm : Form
         }
     }
 
+    private void RepairStartup()
+    {
+        DialogResult answer = MessageBox.Show(
+            this,
+            "修复启动会：\n\n" +
+            "1. 停止 N0vaDesktop 服务\n" +
+            "2. 结束残留的 N0vaDesktop.exe 和 DPPlayer.exe\n" +
+            "3. 重新启动服务并拉起人工桌面\n\n" +
+            "当前未保存的 N0va 界面操作会丢失，是否继续？",
+            "修复人工桌面启动状态",
+            MessageBoxButtons.YesNo,
+            MessageBoxIcon.Warning);
+        if (answer != DialogResult.Yes) return;
+
+        try
+        {
+            SetBusy(true, "正在清理残留进程并重启人工桌面服务…");
+            N0vaStartupRepairResult result = _cache.RepairStartupState();
+            string serviceState = string.IsNullOrWhiteSpace(result.ServiceName)
+                ? "未找到 N0va 服务"
+                : result.ServiceRestarted
+                    ? $"{result.ServiceName}：已重新启动"
+                    : $"{result.ServiceName}：未能确认重启";
+            string message =
+                serviceState + "\n" +
+                $"N0vaDesktop.exe：{(result.N0vaStarted ? "已运行" : "未启动")}\n" +
+                $"DPPlayer.exe：{(result.PlayerStarted ? "已运行" : "未启动")}";
+
+            ToolLogger.Info("修复启动结果：" + message.Replace(Environment.NewLine, "；"));
+            SetStatus(
+                result.N0vaStarted && result.PlayerStarted
+                    ? "人工桌面启动状态已修复"
+                    : "已执行修复，请查看结果和日志");
+            MessageBox.Show(
+                this,
+                message,
+                "修复启动状态",
+                MessageBoxButtons.OK,
+                result.N0vaStarted && result.PlayerStarted
+                    ? MessageBoxIcon.Information
+                    : MessageBoxIcon.Warning);
+            UpdateStatus();
+        }
+        catch (Exception ex)
+        {
+            ToolLogger.Error("修复人工桌面启动状态失败", ex);
+            MessageBox.Show(
+                this,
+                "修复失败：" + ex.Message,
+                "修复启动状态",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Error);
+        }
+        finally
+        {
+            SetBusy(false);
+        }
+    }
+
     private void DeleteSelected()
     {
         WallpaperProfile? profile = GetSelectedProfile();
@@ -885,6 +959,8 @@ internal sealed class MainForm : Form
         _saveButton.Enabled = !_busy && hasSelection;
         _applyButton.Enabled = !_busy && hasSelection && installationReady;
         _restoreButton.Enabled = !_busy && installationReady;
+        _repairButton.Enabled = !_busy && File.Exists(
+            Path.Combine(_cache.CurrentHostDirectory, "N0vaDesktop.exe"));
     }
 
     private static void OpenDataDirectory()

@@ -91,6 +91,12 @@ try
                     StringComparison.OrdinalIgnoreCase)),
             "live automatic installation detection did not find the current N0va install");
 
+        string? liveServiceName = N0vaStartupRepairer.FindServiceName();
+        Console.WriteLine($"LIVE service={liveServiceName ?? "not found"}");
+        Require(
+            !string.IsNullOrWhiteSpace(liveServiceName),
+            "live N0va service discovery failed");
+
         N0vaCacheService liveService = new(
             @"C:\Program Files\N0vaDesktop",
             manageProcesses: false,

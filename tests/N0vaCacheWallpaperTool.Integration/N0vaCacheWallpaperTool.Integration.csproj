@@ -13,6 +13,7 @@
     <Compile Include="..\..\src\N0vaCacheWallpaperTool\ToolPaths.cs" Link="ToolPaths.cs" />
     <Compile Include="..\..\src\N0vaCacheWallpaperTool\ToolLogger.cs" Link="ToolLogger.cs" />
     <Compile Include="..\..\src\N0vaCacheWallpaperTool\N0vaInstallationLocator.cs" Link="N0vaInstallationLocator.cs" />
+    <Compile Include="..\..\src\N0vaCacheWallpaperTool\N0vaStartupRepairer.cs" Link="N0vaStartupRepairer.cs" />
     <Compile Include="..\..\src\N0vaCacheWallpaperTool\N0vaCacheService.cs" Link="N0vaCacheService.cs" />
   </ItemGroup>
 </Project>

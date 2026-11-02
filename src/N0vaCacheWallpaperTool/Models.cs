@@ -112,3 +112,12 @@ internal sealed class ToolSettings
     public int Version { get; set; } = 1;
     public string N0vaInstallDirectory { get; set; } = "";
 }
+
+internal sealed class N0vaStartupRepairResult
+{
+    public string ServiceName { get; init; } = "";
+    public bool ServiceRestarted { get; init; }
+    public bool N0vaStarted { get; init; }
+    public bool PlayerStarted { get; init; }
+    public List<string> Actions { get; init; } = [];
+}

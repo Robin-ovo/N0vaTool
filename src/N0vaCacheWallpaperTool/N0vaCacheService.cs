@@ -474,6 +474,19 @@ internal sealed partial class N0vaCacheService
         });
     }
 
+    public N0vaStartupRepairResult RepairStartupState()
+    {
+        if (!File.Exists(_hostExecutable))
+        {
+            throw new FileNotFoundException(
+                "找不到 N0vaDesktop.exe，请先选择正确的安装目录。",
+                _hostExecutable);
+        }
+
+        ToolLogger.Info($"开始修复人工桌面启动状态，安装目录：{_hostDirectory}");
+        return N0vaStartupRepairer.Repair(_hostDirectory);
+    }
+
     public static string HashFile(string path)
     {
         using FileStream stream = File.OpenRead(path);
